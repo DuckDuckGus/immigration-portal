@@ -1,0 +1,22 @@
+# --- Python Virtual Environment ---
+# We ignore this because others can recreate it with requirements.txt
+.venv/
+venv/
+env/
+
+# --- Environment Secrets ---
+# CRITICAL: Never push your API keys to GitHub
+.env
+
+# --- Database & Local Data ---
+# If you want to keep your local test data private, ignore .db files.
+# If you want to share the DB structure, you can leave this out.
+*.db
+
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.DS_Store

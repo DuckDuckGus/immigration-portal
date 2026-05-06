@@ -135,11 +135,11 @@ def setup_database():
                                (case_key, doc, file_path, random.choice([True, False])))
     
         conn.commit()
-        print(f"DATABASE RECREATED SUCCESSFULLY WITH ENGLISH NATIONALITIES AT: {DB_PATH}")
+        print(f"DATABASE RECREATED SUCCESSFULLY AT: {DB_PATH}")
         
     except Exception as e:
         conn.rollback()
-        print(f"Failed to inject data! Rolled back transaction. Error: {e}")
+        print(f"Failed to inject data. Rolled back transaction. Error: {e}")
     finally:
         conn.close()
 

@@ -1,1 +1,5 @@
-
+google-genai
+mcp
+python-dotenv
+Faker
+pycountry
