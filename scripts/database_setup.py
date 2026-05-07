@@ -1,147 +1,117 @@
 import sqlite3
+import os
+import json
 from faker import Faker
 import random
-import os
-import re
-import unicodedata
+from datetime import datetime, timedelta
 
-# 1. FIXED PATHING
+fake = Faker()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.abspath(os.path.join(BASE_DIR, '..', 'data', 'portal.db'))
 
-# We use two fakers: one for Spanish names/phones, one for English country names
-fake_es = Faker('es_ES')
-fake_en = Faker('en_US') 
-
-NUM_LAWYERS = 5
-NUM_CASES = 50
-
-CASE_TYPES = [
-    "Student Visa", "Non-Lucrative Residency", "EU Family Members",
-    "Work permit – Employee", "Highly Skilled Professional", "EU Blue Card",
-    "Digital Nomad", "Work permit – Self Employed",
-    "Visa for Content Creators & Influencers", "Professional Athletes"
-]
-
-def slugify_name(name):
-    """Converts 'Mónica García-López' to 'MONICA_GARCIA_LOPEZ'"""
-    name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
-    name = re.sub(r'[^\w\s-]', '', name).strip().upper()
-    return re.sub(r'[-\s]+', '_', name)
-
-def setup_database():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+def setup_final_db():
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute("PRAGMA foreign_keys = ON;")
-
-    # Drop and Recreate tables
-    cursor.execute("DROP TABLE IF EXISTS Document_Vault")
-    cursor.execute("DROP TABLE IF EXISTS Case_Files")
-    cursor.execute("DROP TABLE IF EXISTS Clients")
-    cursor.execute("DROP TABLE IF EXISTS Users")
-
-    cursor.execute('''CREATE TABLE Users (
-        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE,
-        full_name TEXT,
-        password_hash TEXT,
-        role TEXT,
-        preferred_lang TEXT DEFAULT 'EN'
-    )''')
-
-    cursor.execute('''CREATE TABLE Clients (
-        client_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        full_name TEXT,
-        dob DATE,
-        nationality TEXT,
-        entry_date DATE,
-        immigration_status TEXT,
-        phone_number TEXT,
-        email TEXT,
-        monthly_income REAL
-    )''')
-
-    cursor.execute('''CREATE TABLE Case_Files (
-        case_key TEXT PRIMARY KEY,
-        client_id INTEGER,
-        lawyer_id INTEGER,
-        case_type TEXT,
-        status TEXT,
-        FOREIGN KEY(client_id) REFERENCES Clients(client_id),
-        FOREIGN KEY(lawyer_id) REFERENCES Users(user_id)
-    )''')
-
-    cursor.execute('''CREATE TABLE Document_Vault (
-        doc_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    # --- TABLE STRUCTURE ---
+    cursor.execute("CREATE TABLE Users (user_id INTEGER PRIMARY KEY, full_name TEXT, role TEXT)")
+    cursor.execute("CREATE TABLE Clients (client_id INTEGER PRIMARY KEY, full_name TEXT, nationality TEXT, email TEXT)")
+    cursor.execute("CREATE TABLE Case_Files (case_key TEXT PRIMARY KEY, client_id INTEGER, lawyer_id INTEGER, case_type TEXT, status TEXT)")
+    
+    # The Vault with JSON metadata and Quality Control columns
+    cursor.execute("""
+    CREATE TABLE Document_Vault (
+        doc_id INTEGER PRIMARY KEY,
         case_key TEXT,
         doc_type TEXT,
-        file_path TEXT,
         is_present BOOLEAN,
+        file_format TEXT,
+        scan_quality TEXT,
+        metadata TEXT, 
+        updated_at DATETIME,
         FOREIGN KEY(case_key) REFERENCES Case_Files(case_key)
-    )''')
+    )""")
 
-    try:
-        # Admin User
-        cursor.execute("INSERT INTO Users (username, full_name, password_hash, role, preferred_lang) VALUES (?,?,?,?,?)",
-                       ('admin_boss', 'Administrator', 'hash123', 'Admin', 'EN'))
-    
-        lawyers_data = [
-            ('elena_ruiz', 'Elena Ruiz-Castellanos'),
-            ('inigo_arretxea', 'Iñigo Arretxea'),
-            ('sofia_silva', 'Sofia Silva'),
-            ('mateo_fernandez', 'Mateo Fernández'),
-            ('lucia_ortiz', 'Lucia Ortiz')
-        ]
+    # --- SEEDING CORE DATA ---
+    lawyers = [(1, "Elena Ruiz-Castellanos", "Lawyer"), (2, "Iñigo Larrea", "Lawyer"), (3, "Admin User", "Admin")]
+    cursor.executemany("INSERT INTO Users VALUES (?,?,?)", lawyers)
 
-        lawyer_ids = []
-        for username, lawyer_full_name in lawyers_data:
-            cursor.execute("INSERT INTO Users (username, full_name, password_hash, role, preferred_lang) VALUES (?,?,?,?,?)",
-                           (username, lawyer_full_name, 'hash123', 'Lawyer', 'ES'))
-            lawyer_ids.append(cursor.lastrowid)
-    
-        # Generate Cases
-        for _ in range(NUM_CASES):
-            client_full_name = fake_es.name()
-            clean_name = slugify_name(client_full_name)
-            
-            # KEY CHANGE: Using fake_en.country() for English nationality values
-            nationality_en = fake_en.country()
+    countries = ["USA", "Philippines", "UK", "China", "Canada", "Brazil"]
+    visa_types = ["Digital Nomad Visa", "Student Visa", "Non-Lucrative Residency", "Highly Skilled Professional"]
 
-            cursor.execute('''INSERT INTO Clients (full_name, dob, nationality, entry_date, immigration_status, phone_number, email, monthly_income)
-                              VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', 
-                           (client_full_name, 
-                            fake_es.date_of_birth(minimum_age=18, maximum_age=65).isoformat(), 
-                            nationality_en, # Now in English
-                            fake_es.date_between('-2y', 'today').strftime('%Y-%m-%d'), 
-                            "In Process",
-                            fake_es.phone_number(), 
-                            fake_es.email(), 
-                            random.uniform(1500, 5000)))
-            
-            client_id = cursor.lastrowid
-            assigned_lawyer = random.choice(lawyer_ids)
-            case_type = random.choice(CASE_TYPES)
-            case_key = f"{clean_name}-2026-{case_type.split()[-1].upper()}"
-    
-            cursor.execute("INSERT INTO Case_Files VALUES (?, ?, ?, ?, ?)", 
-                           (case_key, client_id, assigned_lawyer, case_type, "Active"))
-    
-            for doc in ["Passport", "Criminal_Records", "Entry_Proof", "Health_Insurance", "Application_Fee"]:
-                file_path = f"/vault/{clean_name}_{doc}.pdf"
-                cursor.execute("INSERT INTO Document_Vault (case_key, doc_type, file_path, is_present) VALUES (?, ?, ?, ?)",
-                               (case_key, doc, file_path, random.choice([True, False])))
-    
-        conn.commit()
-        print(f"DATABASE RECREATED SUCCESSFULLY AT: {DB_PATH}")
+    for i in range(1, 12):
+        client_name = fake.name()
+        nationality = random.choice(countries)
+        cursor.execute("INSERT INTO Clients (full_name, nationality, email) VALUES (?,?,?)", 
+                       (client_name, nationality, fake.email()))
+        client_id = cursor.lastrowid
         
-    except Exception as e:
-        conn.rollback()
-        print(f"Failed to inject data. Rolled back transaction. Error: {e}")
-    finally:
-        conn.close()
+        case_key = f"ES-2026-{2000+i}"
+        visa = random.choice(visa_types)
+        cursor.execute("INSERT INTO Case_Files VALUES (?,?,?,?,?)", 
+                       (case_key, client_id, random.choice([1, 2]), visa, "In Progress"))
+
+        # --- GENERATING DEEP METADATA PER DOC TYPE ---
+        doc_list = ["Passport", "Police Certificate", "Health Insurance", "Bank Statements", "Medical Certificate"]
+        
+        for d in doc_list:
+            is_present = random.choice([0, 1])
+            meta = {}
+            fmt = "PDF" if random.random() > 0.1 else "JPG" # Simulate rare incorrect format
+            quality = random.choice(["High", "Medium", "Blurry"])
+
+            if is_present:
+                if d == "Police Certificate":
+                    issue = (datetime.now() - timedelta(days=random.randint(10, 150))).strftime("%Y-%m-%d")
+                    meta = {
+                        "issue_date": issue,
+                        "has_apostille": random.choice([True, False]),
+                        "is_sworn_translated": random.choice([True, True, False]), # Mostly true
+                        "issuing_authority": "Federal Bureau",
+                        "validity_months": 3 if nationality != "UK" else 6
+                    }
+                elif d == "Passport":
+                    expiry = (datetime.now() + timedelta(days=random.randint(-30, 1500))).strftime("%Y-%m-%d")
+                    meta = {
+                        "expiry_date": expiry,
+                        "passport_number": fake.bothify(text='??#######'),
+                        "all_pages_scanned": random.choice([True, False]),
+                        "blank_pages_count": random.randint(0, 10)
+                    }
+                elif d == "Health Insurance":
+                    meta = {
+                        "provider": random.choice(["Sanitas", "Adeslas", "DKV"]),
+                        "no_copay": random.choice([True, True, False]),
+                        "repatriation_included": True,
+                        "policy_start": "2026-01-01"
+                    }
+                elif d == "Bank Statements":
+                    meta = {
+                        "balance_eur": random.randint(28000, 55000),
+                        "period_months": 3,
+                        "has_bank_stamp": random.choice([True, False]),
+                        "currency": "EUR"
+                    }
+                elif d == "Medical Certificate":
+                    meta = {
+                        "official_template_used": random.choice([True, False]),
+                        "doctor_registration_num": fake.bothify(text='#####'),
+                        "issue_date": datetime.now().strftime("%Y-%m-%d")
+                    }
+
+            cursor.execute("""
+                INSERT INTO Document_Vault (case_key, doc_type, is_present, file_format, scan_quality, metadata, updated_at) 
+                VALUES (?,?,?,?,?,?,?)""",
+                (case_key, d, is_present, fmt, quality, json.dumps(meta), datetime.now().isoformat())
+            )
+
+    conn.commit()
+    conn.close()
+    print(f"Database Revamped: {DB_PATH}")
+    print("Deep Metadata active for: Expiry, Apostilles, Insurance Specs, and Scan Quality.")
 
 if __name__ == "__main__":
-    setup_database()
+    setup_final_db()

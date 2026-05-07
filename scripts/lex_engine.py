@@ -1,104 +1,120 @@
 import os
 import asyncio
+import sys
+from typing import Optional
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-import sys
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+# 1. SETUP & PATHING
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
 if not api_key:
-    raise ValueError("Missing API Key!")
+    raise ValueError("Missing GEMINI_API_KEY in .env file!")
 
 client = genai.Client(api_key=api_key)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class LexEngine:
-    def __init__(self, current_user_id: int, role: str):
-        self.user_id = current_user_id
+    def __init__(self, user_id: int, role: str):
+        self.user_id = user_id
         self.role = role
         
-        # This chat object ONLY sees the clean conversation now
+        # Permanent System Instruction for Lex
         self.chat = client.chats.create(
             model='gemini-3.1-flash-lite-preview',
             config=types.GenerateContentConfig(
                 system_instruction=(
-                    f"You are Lex, a bilingual legal assistant. "
-                    f"Logged in user ID: {self.user_id} | Role: {self.role}. "
-                    "CRITICAL RULES: "
-                    "1. Always respond in the EXACT language the user used. "
-                    "2. NEVER invent or guess information. If the database returns 'SYSTEM MESSAGE: No client found', you MUST tell the user the client could not be found. Do not guess their nationality."
+                    f"You are Lex, an expert legal-tech assistant for an immigration portal. "
+                    f"Context: UserID {self.user_id}, Role {self.role}. "
+                    "RULES: "
+                    "1. Respond in the same language as the user (English/Spanish). "
+                    "2. Use ONLY provided database data. If data is missing, say so politely. "
+                    "3. Be concise and professional, like a helpful peer."
                 )
             )
         )
 
     async def ask_mcp(self, user_prompt: str):
-        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        """
+        Connects to the MCP server, routes the intent, and returns a summary.
+        """
         server_params = StdioServerParameters(
             command=sys.executable,
             args=[os.path.join(BASE_DIR, "lex_mcp_server.py")],
             env=os.environ.copy()
         )
-        
 
         async with stdio_client(server_params) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 
-                print("Lex is thinking (and connecting to MCP)...")
-                
-                # ---------------------------------------------------------
-                # 1. THE STATELESS ROUTER (Does not poison chat history)
-                # ---------------------------------------------------------
+                # --- STEP 1: SMART INTENT ROUTING ---
+                # We use a separate prompt to decide WHICH tool to call.
                 router_prompt = (
-                    f"The user just said: '{user_prompt}'.\n"
-                    f"If they are asking to find, search, or look up a specific client, reply with JUST their name (no punctuation).\n"
-                    f"If they are asking for missing documents or an audit, reply with exactly 'AUDIT'.\n"
-                    f"If it's just normal conversation, a greeting, or a correction, reply with 'CONVERSATION'."
+                    f"Identify the user intent for: '{user_prompt}'\n"
+                    "- If they want stats, case counts, or 'who has most cases': return 'STATS'\n"
+                    "- If they want an audit or missing documents: return 'AUDIT'\n"
+                    "- If they are searching for a person/client: return 'SEARCH:[NAME]'\n"
+                    "- Otherwise: return 'CHAT'"
                 )
                 
-                intent_response = client.models.generate_content(
+                intent_raw = client.models.generate_content(
                     model='gemini-3.1-flash-lite-preview',
                     contents=router_prompt
-                )
-                ai_intent = intent_response.text.strip().replace(".", "").replace("?", "")
+                ).text.strip().upper()
+
+                # --- STEP 2: TOOL EXECUTION ---
+                db_data = "No data retrieved."
                 
-                # ---------------------------------------------------------
-                # 2. EXECUTE AND RESPOND (Using clean chat history)
-                # ---------------------------------------------------------
-                if ai_intent == 'AUDIT':
-                    result = await session.call_tool("audit_documents", arguments={
-                        "user_id": self.user_id, "role": self.role, "limit": 20
-                    })
-                    final_answer = self.chat.send_message(f"User asked: '{user_prompt}'. Database data: {result.content}. Summarize this.")
-                    return final_answer.text
+                if 'STATS' in intent_raw:
+                    # Calls the new get_lawyer_stats tool
+                    result = await session.call_tool("get_lawyer_stats", arguments={})
+                    db_data = result.content
                     
-                elif ai_intent not in ['CONVERSATION', 'AUDIT']:
-                    # It extracted a name!
-                    result = await session.call_tool("search_clients", arguments={
-                        "search_term": ai_intent, "user_id": self.user_id, "role": self.role
+                elif 'AUDIT' in intent_raw:
+                    result = await session.call_tool("audit_documents", arguments={
+                        "user_id": self.user_id, "role": self.role, "limit": 15
                     })
-                    final_answer = self.chat.send_message(f"User asked: '{user_prompt}'. Database data for {ai_intent}: {result.content}. Answer the user accurately based ONLY on this data.")
-                    return final_answer.text
+                    db_data = result.content
+                    
+                elif 'SEARCH:' in intent_raw:
+                    # Extracts name from 'SEARCH:ELENA'
+                    name_query = intent_raw.split(':')[-1]
+                    result = await session.call_tool("search_clients", arguments={
+                        "search_term": name_query, "user_id": self.user_id, "role": self.role
+                    })
+                    db_data = result.content
                 
-                else:
-                    # Normal conversation (like "No, he's from Mali")
-                    final_answer = self.chat.send_message(user_prompt)
-                    return final_answer.text
+                # --- STEP 3: FINAL RESPONSE GENERATION ---
+                # We feed the DB data back into the main chat history
+                final_context = f"User: {user_prompt}\nDatabase Result: {db_data}\n\nPlease summarize this for the user."
+                response = self.chat.send_message(final_context)
+                
+                return response.text
 
-# --- LIVE TEST ---
-if __name__ == "__main__":
-    async def main():
-        print("--- Lex Live MCP Session ---")
-        lex = LexEngine(current_user_id=1, role='Admin')
-        
-        while True:
-            user_input = input("\nYou: ")
-            if user_input.lower() in ['exit', 'quit']:
-                break
+# --- LIVE CLI TERMINAL ---
+async def main():
+    # Simulated Login (Tomorrow we'll make this a real UI login)
+    print("--- ⚖️ Lex Immigration Portal: CLI Mode ---")
+    lex = LexEngine(user_id=1, role='Admin')
+    
+    while True:
+        try:
+            user_input = input("\nYou: ").strip()
+            if user_input.lower() in ['exit', 'quit']: break
+            if not user_input: continue
             
-            response = await lex.ask_mcp(user_input)
-            print(f"\nLex: {response}")
+            print("Lex is checking the vault...")
+            answer = await lex.ask_mcp(user_input)
+            print(f"\nLex: {answer}")
+            
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(f"\n[Error]: {e}")
 
+if __name__ == "__main__":
     asyncio.run(main())
