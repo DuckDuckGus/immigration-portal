@@ -3,6 +3,7 @@ import asyncio
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+import sys
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -33,10 +34,13 @@ class LexEngine:
         )
 
     async def ask_mcp(self, user_prompt: str):
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         server_params = StdioServerParameters(
-            command="python",
-            args=["scripts/lex_mcp_server.py"], 
+            command=sys.executable,
+            args=[os.path.join(BASE_DIR, "lex_mcp_server.py")],
+            env=os.environ.copy()
         )
+        
 
         async with stdio_client(server_params) as (read, write):
             async with ClientSession(read, write) as session:
