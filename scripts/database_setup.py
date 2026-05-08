@@ -73,7 +73,7 @@ def setup_final_comprehensive_db():
     cursor.executemany("INSERT INTO Users VALUES (?,?,?)", users)
 
     # 5. SEED 50 CASES
-    nats = ["USA", "UK", "Canada", "Philippines", "Mexico", "Brazil"]
+    nats = ["USA", "UK", "Canada", "Philippines", "Mexico", "Brazil", "Argentina", "Venezuela", "Colombia", "Peru", "Chile", "Ecuador", "Bolivia" ]
     for i in range(1, 51):
         eng = random.choice(eng_data)
         adj_rate = round(random.uniform(0.9, 1.4), 2)
