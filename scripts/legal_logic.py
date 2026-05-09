@@ -27,6 +27,7 @@ class LegalBrain:
         
         if case_data.get('adjustment_rate', 1.0) < 1.0:
             flags.append("DISCOUNT_APPLIED")
+            
         elif case_data.get('adjustment_rate', 1.0) > 1.0:
             flags.append("SURCHARGE_APPLIED")
 

@@ -3,3 +3,4 @@ mcp
 python-dotenv
 Faker
 pycountry
+fastapi

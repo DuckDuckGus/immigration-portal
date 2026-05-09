@@ -1,54 +1,53 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import sqlite3
-import json
 import os
 from scripts.legal_logic import LegalBrain
 
-# 1. INITIALIZATION
-app = FastAPI(title="Immigration Portal API")
+app = FastAPI(title="Immigration Portal SDK")
 
-# 2. SECURITY (CORS)
+# 1. SECURITY: Open the door for your JavaScript UI
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"], # Change this to your GitHub Pages URL later
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 3. DATABASE HELPER
-def get_db_connection():
-    # Construct path to be OS-independent
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    db_path = os.path.join(base_dir, "data", "portal.db")
-    
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row  # This allows us to access columns by name
+# 2. ROBUST PATHING: Find the DB no matter where the app is running
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "data", "portal.db")
+
+def get_db():
+    if not os.path.exists(DB_PATH):
+        raise FileNotFoundError(f"Database not found at {DB_PATH}")
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     return conn
 
-# 4. THE MAIN ENDPOINT
-@app.get("/cases")
-def list_cases():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
+# 3. THE "ALL CASES" ENDPOINT (The heart of your dashboard)
+@app.get("/api/v1/cases")
+def get_dashboard_data():
     try:
-        # A. FETCH RAW INGREDIENTS
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Join Case_Files with Engagement_Types to get the "Rules" for each case
         cursor.execute("""
             SELECT cf.*, et.name as visa_name, et.required_docs 
             FROM Case_Files cf
             JOIN Engagement_Types et ON cf.eng_id = et.eng_id
         """)
-        raw_cases = [dict(row) for row in cursor.fetchall()]
+        cases = [dict(row) for row in cursor.fetchall()]
 
-        processed_cases = []
-
-        for case in raw_cases:
-            # B. FETCH DOCUMENTS FOR THIS SPECIFIC CASE
+        results = []
+        for case in cases:
+            # Fetch Docs for this case
             cursor.execute("SELECT * FROM Document_Vault WHERE case_key = ?", (case['case_key'],))
             docs = [dict(d) for d in cursor.fetchall()]
 
-            # C. FETCH CLIENT METADATA
+            # Fetch Client Meta (for marriage/profile flags)
             cursor.execute("""
                 SELECT c.metadata FROM Clients c
                 JOIN Case_Clients cc ON c.client_id = cc.client_id
@@ -57,21 +56,28 @@ def list_cases():
             client_row = cursor.fetchone()
             client_meta = client_row['metadata'] if client_row else "{}"
 
-            # D. THE HANDOFF: Pass ingredients to the Static Brain
+            # PROCESS logic via the Static Brain
             analysis = LegalBrain.get_case_flags(case, docs, client_meta)
-
-            # E. COMBINE RAW DATA WITH BRAIN ANALYSIS
+            
+            # Merge and clean up
             case.update(analysis)
-            processed_cases.append(case)
+            results.append(case)
 
-        return processed_cases
+        conn.close()
+        return results
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
+        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
-# 5. START THE SERVER
+# 4. SINGLE CASE ENDPOINT (For when a lawyer clicks a specific row)
+@app.get("/api/v1/cases/{case_key}")
+def get_case_detail(case_key: str):
+    # This will return the granular list of every document and its specific flags
+    # Useful for the "Deep Dive" view in your JS UI
+    pass
+
 if __name__ == "__main__":
     import uvicorn
+    # Run the server on port 8000
     uvicorn.run(app, host="0.0.0.0", port=8000)
