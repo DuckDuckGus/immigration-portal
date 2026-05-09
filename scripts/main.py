@@ -2,8 +2,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import sqlite3
 import os
-from scripts.legal_logic import LegalBrain
-
+from legal_logic import LegalBrain
+s
 app = FastAPI(title="Immigration Portal SDK")
 
 # 1. SECURITY: Open the door for your JavaScript UI
