@@ -6,6 +6,62 @@ fake = Faker('es_ES')
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.abspath(os.path.join(BASE_DIR, '..', 'data', 'portal.db'))
 
+def _generate_realistic_value(key, fake_instance):
+    """Smart factory to generate realistic data based on the required key name."""
+    
+    # 1. DATES (YYYY-MM-DD)
+    if "date" in key:
+        if key == "issue_date":
+            # Sometime in the past 3 years
+            return fake_instance.date_between(start_date='-3y', end_date='today').strftime("%Y-%m-%d")
+        elif key == "expiry_date":
+            # Past 1 year (risky) or next 5 years (valid)
+            return fake_instance.date_between(start_date='-1y', end_date='+5y').strftime("%Y-%m-%d")
+        elif key == "start_date":
+            return fake_instance.date_between(start_date='today', end_date='+1y').strftime("%Y-%m-%d")
+    
+    # 2. BOOLEANS (Legal validations)
+    elif key.startswith("is_") or key.startswith("has_") or key in ["all_pages_scanned", "stamped_by_bank", "no_copay", "repatriation", "signed_by_company", "viable_by_upt", "homologated"]:
+        # 80% chance of being True to simulate mostly valid docs, with some risky ones
+        return random.random() < 0.80
+    
+    # 3. FINANCIALS
+    elif key in ["balance_eur", "salary_annual", "investment_amount", "projected_revenue", "capital_available"]:
+        return round(random.uniform(5000, 80000), 2)
+    elif key == "currency":
+        return random.choices(["EUR", "USD", "GBP"], weights=[0.85, 0.1, 0.05])[0]
+    
+    # 4. SPECIFIC STRINGS & NUMBERS
+    elif key == "school_name":
+        return f"Universidad de {fake_instance.city()}"
+    elif key == "passport_number":
+        return fake_instance.bothify(text='??#######', letters='ABCDEFGHIJKLMNOPQRSTUVWXYZ')
+    elif key == "provider":
+        return random.choice(["Sanitas", "Adeslas", "DKV", "Asisa", "Mapfre"])
+    elif key == "frequency":
+        return random.choice(["Monthly", "Annually"])
+    elif key == "duration":
+        return random.choice(["1 year", "Indefinite", "6 months"])
+    elif key == "level":
+        return random.choice(["Bachelor", "Master", "PhD"])
+    elif key == "paid_status":
+        return random.choice(["Paid", "Unpaid"])
+    elif key == "cif_number":
+        return fake_instance.bothify(text='B########')
+    elif key == "active_status":
+        return random.choice(["Active", "Inactive"])
+    elif key == "years_exp":
+        return random.randint(1, 15)
+    elif key == "relevant_sector":
+        return fake_instance.job()
+    elif key == "members_listed":
+        return random.randint(1, 5)
+    elif key == "license_number":
+        return fake_instance.bothify(text='LIC-#####')
+    
+    # Fallback for anything missed
+    return fake_instance.word()
+
 def setup_final_comprehensive_db():
     if os.path.exists(DB_PATH): os.remove(DB_PATH)
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -65,7 +121,7 @@ def setup_final_comprehensive_db():
     )""")
     cursor.execute("CREATE TABLE Case_Files (case_key TEXT PRIMARY KEY, lawyer_id INTEGER, eng_id INTEGER, status TEXT, adjustment_rate REAL, total_fee REAL)")
     cursor.execute("CREATE TABLE Case_Clients (case_key TEXT, client_id INTEGER)")
-    cursor.execute("CREATE TABLE Document_Vault (doc_id INTEGER PRIMARY KEY, case_key TEXT, client_id INTEGER, doc_type TEXT, is_present BOOLEAN, metadata TEXT, updated_at DATETIME)")
+    cursor.execute("CREATE TABLE Document_Vault (doc_id INTEGER PRIMARY KEY, case_key TEXT, client_id INTEGER, doc_type TEXT, is_present BOOLEAN, metadata TEXT, updated_at DATE)")
 
     # 4. TEAM: 5 LAWYERS + 1 ADMIN
     users = [(1, "Elena Ruiz", "Lawyer"), (2, "Iñigo Larrea", "Lawyer"), (3, "Javi Montoya", "Lawyer"), 
@@ -73,7 +129,7 @@ def setup_final_comprehensive_db():
     cursor.executemany("INSERT INTO Users VALUES (?,?,?)", users)
 
     # 5. SEED 50 CASES
-    nats = ["USA", "UK", "Canada", "Philippines", "Mexico", "Brazil", "Argentina", "Venezuela", "Colombia", "Peru", "Chile", "Ecuador", "Bolivia" ]
+    nats = ["USA", "UK", "Canada", "Philippines", "Mexico", "Brazil", "Argentina", "Venezuela", "Colombia", "Peru", "Chile", "Ecuador", "Bolivia"]
     for i in range(1, 51):
         eng = random.choice(eng_data)
         adj_rate = round(random.uniform(0.9, 1.4), 2)
@@ -103,15 +159,26 @@ def setup_final_comprehensive_db():
             cursor.execute("INSERT INTO Case_Clients (case_key, client_id) VALUES (?,?)", (case_key, c_id))
             for doc_name in json.loads(eng[2]):
                 is_present = random.choice([0, 1])
+                
+                # Fetch exact required keys for this specific doc_type
                 cursor.execute("SELECT required_keys FROM Document_Types WHERE name = ?", (doc_name,))
                 req_keys = json.loads(cursor.fetchone()[0])
-                meta = {key: (fake.bothify("??###") if is_present else None) for key in req_keys}
+                
+                # Generate realistic metadata using the helper function
+                meta = {}
+                if is_present:
+                    for key in req_keys:
+                        meta[key] = _generate_realistic_value(key, fake)
+                else:
+                    meta = {key: None for key in req_keys}
+                
+                # Insert with Date only (no time)
                 cursor.execute("INSERT INTO Document_Vault (case_key, client_id, doc_type, is_present, metadata, updated_at) VALUES (?,?,?,?,?,?)",
-                               (case_key, c_id, doc_name, is_present, json.dumps(meta), datetime.now().isoformat()))
+                               (case_key, c_id, doc_name, is_present, json.dumps(meta), datetime.now().strftime("%Y-%m-%d")))
 
     conn.commit()
     conn.close()
-    print("DB Created")
+    print("DB Created Successfully with Realistic Metadata")
 
 if __name__ == "__main__":
     setup_final_comprehensive_db()

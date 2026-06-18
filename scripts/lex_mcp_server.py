@@ -38,14 +38,17 @@ def search_clients(search_term: str, user_id: int, role: str) -> str:
     conn = _get_db_connection()
     cursor = conn.cursor()
 
-    # Base Query
+    # Corrected JOIN: Case_Files does not have client_id. 
+    # We must join through Case_Clients and then to Engagement_Types for the case name.
     query = """
-        SELECT c.full_name, c.nationality, cf.case_type, cf.status
+        SELECT c.full_name, c.nationality, e.name as case_type, cf.status
         FROM Clients c
-        LEFT JOIN Case_Files cf ON c.client_id = cf.client_id
-        WHERE c.full_name LIKE ?
+        LEFT JOIN Case_Clients cc ON c.client_id = cc.client_id
+        LEFT JOIN Case_Files cf ON cc.case_key = cf.case_key
+        LEFT JOIN Engagement_Types e ON cf.eng_id = e.eng_id
+        WHERE c.full_name LIKE ? OR c.nationality LIKE ?
     """
-    params = [fuzzy_term]
+    params = [fuzzy_term, fuzzy_term]
 
     # Security Firewall: If not Admin, filter by lawyer_id
     if role != 'Admin':
@@ -80,11 +83,14 @@ def audit_documents(user_id: int, role: str, limit: int = 15) -> str:
     conn = _get_db_connection()
     cursor = conn.cursor()
 
+    # Corrected JOIN: Case_Files does not have client_id. Join via Case_Clients.
     query = """
-        SELECT c.full_name, dv.doc_type, cf.case_type
+        SELECT c.full_name, dv.doc_type, e.name as case_type
         FROM Document_Vault dv
         JOIN Case_Files cf ON dv.case_key = cf.case_key
-        JOIN Clients c ON cf.client_id = c.client_id
+        JOIN Case_Clients cc ON cf.case_key = cc.case_key
+        JOIN Clients c ON cc.client_id = c.client_id
+        JOIN Engagement_Types e ON cf.eng_id = e.eng_id
         WHERE dv.is_present = 0
     """
     params = []

@@ -2,83 +2,90 @@ import json
 from datetime import datetime
 
 class LegalBrain:
-    # IPREM/SMI Thresholds for 2026 (Simulated)
-    THRESHOLDS = {
-        "Digital Nomad": 32000,
-        "Non-Lucrative Residency": 29000,
-        "Student Visa": 7200
+    """
+    The LegalBrain processes case health based on dynamic requirements.
+    It no longer contains hardcoded visa rules, allowing the database 
+    to act as the single source of truth.
+    """
+
+    # These are default risk penalties if data is missing or out of compliance.
+    # In a production environment, move these to a config file.
+    DEFAULT_FLAG_WEIGHTS = {
+        "EXPIRED_DOC": 10,
+        "MISSING_APOSTILLE": 10,
+        "INVALID_DATE_FORMAT": 8,
+        "STALE_DOC": 5,
+        "EXPIRY_RISK": 5,
+        "TRANSLATION_REQ": 3,
+        "INCOMPLETE_VAULT": 5
     }
 
     @staticmethod
-    def get_case_flags(case_data, docs_metadata, client_metadata):
+    def get_case_health(case_data, docs_metadata, required_docs_list):
         """
-        Input: 
-        - case_data: dict from Case_Files table
-        - docs_metadata: list of dicts from Document_Vault
-        - client_metadata: dict from Clients.metadata
+        Calculates triage metrics.
+        :param case_data: Dict of case info
+        :param docs_metadata: List of dicts representing present documents
+        :param required_docs_list: List of strings (e.g., ["PASSPORT", "OFFER_LETTER"])
+                                   Fetched dynamically from DB before calling this.
         """
         flags = []
-        valid_docs_count = 0
-        total_required = len(docs_metadata)
-
-        # 1. Financial Flags
-        if case_data.get('total_fee', 0) > 0 and case_data.get('status') == 'Unpaid':
-            flags.append("NOT_PAID")
+        total_required = len(required_docs_list)
         
-        if case_data.get('adjustment_rate', 1.0) < 1.0:
-            flags.append("DISCOUNT_APPLIED")
+        # A. Calculate Completeness
+        # Check which required doc types are present and marked as valid
+        present_types = [d['doc_type'] for d in docs_metadata if d.get('is_present')]
+        valid_docs_count = sum(1 for req in required_docs_list if req in present_types)
+        
+        if valid_docs_count < total_required:
+            flags.append("INCOMPLETE_VAULT")
             
-        elif case_data.get('adjustment_rate', 1.0) > 1.0:
-            flags.append("SURCHARGE_APPLIED")
+        completeness_rate = round((valid_docs_count / total_required) * 100, 1) if total_required > 0 else 0
 
-        # 2. Relationship Flags
-        client_meta = json.loads(client_metadata) if isinstance(client_metadata, str) else client_metadata
-        if client_meta.get("is_married") and not any(d['doc_type'] == 'Marriage/Partner Certificate' and d['is_present'] for d in docs_metadata):
-            flags.append("MISSING_SPOUSE_DATA")
-
-        # 3. Document-Level Validation Logic
+        # B. Calculate Risk Score
+        risk_score = 0
+        
+        # Audit logic for existing docs
         for doc in docs_metadata:
-            is_valid = True
+            if not doc.get('is_present'): continue
+            
+            # Metadata is expected as a dict or parsed JSON string
             doc_meta = json.loads(doc['metadata']) if isinstance(doc['metadata'], str) else doc['metadata']
             
-            if not doc['is_present']:
-                is_valid = False
-            else:
-                # Expiry Check
-                if "expiry_date" in doc_meta and doc_meta["expiry_date"]:
+            # Expiry Check
+            if doc_meta.get("expiry_date"):
+                try:
                     expiry = datetime.strptime(doc_meta["expiry_date"], "%Y-%m-%d")
-                    if (expiry - datetime.now()).days < 180:
-                        flags.append(f"EXPIRY_RISK_{doc['doc_type'].upper()}")
-                        if (expiry - datetime.now()).days < 0: is_valid = False
+                    days_left = (expiry - datetime.now()).days
+                    if days_left < 0: flags.append("EXPIRED_DOC")
+                    elif days_left < 180: flags.append("EXPIRY_RISK")
+                except (ValueError, TypeError): 
+                    flags.append("INVALID_DATE_FORMAT")
 
-                # Legalization Check
-                if "has_apostille" in doc_meta and doc_meta["has_apostille"] is False:
-                    flags.append(f"LEGALIZATION_GAP_{doc['doc_type'].upper()}")
-                    is_valid = False
+        # Sum weighted risks
+        unique_flags = list(set(flags))
+        for flag in unique_flags:
+            risk_score += LegalBrain.DEFAULT_FLAG_WEIGHTS.get(flag, 1)
 
-                # Freshness (Stale) Check
-                if "issue_date" in doc_meta and doc_meta["issue_date"]:
-                    issue = datetime.strptime(doc_meta["issue_date"], "%Y-%m-%d")
-                    if (datetime.now() - issue).days > 90:
-                        flags.append(f"STALE_DOC_{doc['doc_type'].upper()}")
-                        is_valid = False
-
-                # Translation Check
-                if "is_translated" in doc_meta and doc_meta["is_translated"] is False:
-                    flags.append(f"TRANSLATION_REQ_{doc['doc_type'].upper()}")
-                    is_valid = False
-
-            if is_valid:
-                valid_docs_count += 1
-
-        # 4. Final Completion Logic
-        completion_rate = round((valid_docs_count / total_required) * 100, 1) if total_required > 0 else 0
+        # Completeness Penalty: Heavier weight for significantly incomplete files
+        if completeness_rate < 50: risk_score += 20
+        elif completeness_rate < 90: risk_score += 10
         
-        if completion_rate < 100:
-            flags.append("INCOMPLETE_VAULT")
+        risk_score = min(risk_score, 100)
 
         return {
-            "completion_rate": completion_rate,
-            "flags": list(set(flags)), # Deduplicate flags
-            "ready_for_submission": completion_rate == 100 and "NOT_PAID" not in flags
+            "completeness_score": completeness_rate,
+            "risk_score": risk_score,
+            "flags": unique_flags,
+            "lawyer": case_data.get('lawyer_name', 'Unassigned'),
+            "labels": LegalBrain._generate_labels(completeness_rate, risk_score),
+            "ready_for_submission": completeness_rate == 100 and risk_score < 10
         }
+
+    @staticmethod
+    def _generate_labels(completeness, risk):
+        labels = []
+        if risk > 50: labels.append("HIGH_RISK")
+        if completeness < 80: labels.append("GATHERING")
+        if risk < 20 and completeness == 100: labels.append("READY_TO_FILE")
+        return labels

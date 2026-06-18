@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <title>LexLegal Management</title>
+</head>
+<body>
+    <nav>
+        <div class="nav-container">
+            <div class="logo">⚖️ LexLegal <span class="sub-logo">Portal</span></div>
+            <div class="search-box">
+                <input type="text" id="global-search" placeholder="Search by case ID or client name..." onkeyup="handleSearch(event)">
+            </div>
+        </div>
+    </nav>
+
+    <div class="control-bar">
+        <div class="tabs">
+            <button id="btn-cases" class="active" onclick="renderView('cases')">All Cases</button>
+            <button id="btn-lawyers" onclick="renderView('lawyers')">Lawyers Team</button>
+        </div>
+        <div class="sort-controls" id="sort-controls">
+            <label>Sort By:</label>
+            <select id="sort-select" onchange="handleSortChange()">
+                <option value="priority">High Risk First</option>
+                <option value="completeness">Least Complete First</option>
+                <option value="alpha">Alphabetical</option>
+            </select>
+        </div>
+    </div>
+
+    <main id="main-content">
+        <!-- Data injected here -->
+    </main>
+
+    <script src="/static/js/app.js"></script>
+    <script>
+        // Automatically load the 'cases' view so the dashboard isn't empty on arrival
+        document.addEventListener('DOMContentLoaded', () => {
+            if (typeof renderView === 'function') renderView('cases');
+        });
+    </script>
+</body>
+</html>
