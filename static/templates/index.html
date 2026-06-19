@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
     <link rel="stylesheet" href="/static/css/style.css">
-    <title>LexLegal Management</title>
+    <title>Client Management Portal</title>
 </head>
 <body>
     <nav>
         <div class="nav-container">
-            <div class="logo">⚖️ LexLegal <span class="sub-logo">Portal</span></div>
+            <div class="logo">⚖️ Client Management <span class="sub-logo">Portal</span></div>
             <div class="search-box">
-                <input type="text" id="global-search" placeholder="Search by case ID or client name..." onkeyup="handleSearch(event)">
+                <input type="text" id="global-search" placeholder="Search by case ID..." onkeyup="handleSearch(event)">
             </div>
         </div>
     </nav>
@@ -17,12 +17,17 @@
     <div class="control-bar">
         <div class="tabs">
             <button id="btn-cases" class="active" onclick="renderView('cases')">All Cases</button>
-            <button id="btn-lawyers" onclick="renderView('lawyers')">Lawyers Team</button>
+            <button id="btn-lawyers" onclick="renderView('lawyers')">Team</button>
         </div>
-        <div class="sort-controls" id="sort-controls">
+        <div class="filter-controls" id="filter-controls">
+            <div class="filter-group">
+                <select id="state-filter"></select>
+                <select id="lawyer-filter"></select>
+                <select id="engagement-filter"></select>
+            </div>
             <label>Sort By:</label>
             <select id="sort-select" onchange="handleSortChange()">
-                <option value="priority">High Risk First</option>
+                <option value="priority">High Urgency First</option>
                 <option value="completeness">Least Complete First</option>
                 <option value="alpha">Alphabetical</option>
             </select>
@@ -33,10 +38,81 @@
         <!-- Data injected here -->
     </main>
 
+    <!-- Case Detail Modal -->
+    <div id="case-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-case-key"></h2>
+                <button id="modal-close-btn" class="close-chat">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p><strong>Clients:</strong> <span id="modal-clients"></span></p>
+                <p><strong>Assigned Lawyer:</strong> <span id="modal-lawyer"></span></p>
+                <hr>
+                <strong>Documents:</strong>
+                <ul id="modal-doc-list"></ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Client Detail Modal -->
+    <div id="client-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-client-name"></h2>
+                <button id="client-modal-close-btn" class="close-chat">&times;</button>
+            </div>
+            <div class="modal-body" id="client-modal-body">
+                <!-- Client details will be injected here -->
+                <p><strong>Date of Birth:</strong> <span id="modal-client-dob"></span></p>
+                <p><strong>Nationality:</strong> <span id="modal-client-nationality"></span></p>
+                <p><strong>Email:</strong> <span id="modal-client-email"></span></p>
+                <hr>
+                <p><strong>Address:</strong> <span id="modal-client-address"></span></p>
+                <hr>
+                <p><strong>Spouse:</strong> <span id="modal-client-spouse"></span></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Document Detail Modal -->
+    <div id="document-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content" style="max-width: 450px;">
+            <div class="modal-header">
+                <h2 id="modal-doc-name"></h2>
+                <button id="document-modal-close-btn" class="close-chat">&times;</button>
+            </div>
+            <div class="modal-body" id="document-modal-body">
+                <!-- Document metadata will be injected here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Lex Chatbot Widget -->
+    <div class="chatbot-container">
+        <div class="chat-window" id="chat-window">
+            <div class="chat-header">
+                <strong>Lex the Robot</strong>
+                <button class="close-chat" id="close-chat-btn">&times;</button>
+            </div>
+            <div class="chat-body" id="chat-body">
+                <!-- Messages will be injected here -->
+                <div class="chat-message lex">Hello! I am Lex the Robot. How can I help you today?</div>
+            </div>
+            <div class="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Ask Lex the Robot a question...">
+                <button id="send-chat-btn">➤</button>
+            </div>
+        </div>
+        <button class="chat-launcher" id="chat-launcher-btn">⚖️</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static/js/app.js"></script>
     <script>
         // Automatically load the 'cases' view so the dashboard isn't empty on arrival
         document.addEventListener('DOMContentLoaded', () => {
+            // The app.js file will handle its own setup now
             if (typeof renderView === 'function') renderView('cases');
         });
     </script>

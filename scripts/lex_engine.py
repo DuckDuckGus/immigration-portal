@@ -18,17 +18,16 @@ client = genai.Client(api_key=api_key)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class LexEngine:
-    def __init__(self, user_id: int, role: str):
+    def __init__(self, user_id: int):
         self.user_id = user_id
-        self.role = role
         
         # Permanent System Instruction for Lex
         self.chat = client.chats.create(
             model='gemini-3.1-flash-lite-preview',
             config=types.GenerateContentConfig(
                 system_instruction=(
-                    f"You are Lex, an expert legal-tech assistant for an immigration portal. "
-                    f"Context: UserID {self.user_id}, Role {self.role}. "
+                    f"You are Lex the Robot, an expert legal-tech assistant for an immigration portal. "
+                    f"Context: UserID {self.user_id}. "
                     "RULES: "
                     "1. Respond in the same language as the user (English/Spanish). "
                     "2. Use ONLY provided database data. If data is missing, say so politely. "
@@ -54,11 +53,15 @@ class LexEngine:
                 # --- STEP 1: SMART INTENT ROUTING ---
                 # We use a separate prompt to decide WHICH tool to call.
                 router_prompt = (
-                    f"Identify the user intent for: '{user_prompt}'\n"
-                    "- If they want stats, case counts, or 'who has most cases': return 'STATS'\n"
-                    "- If they want an audit or missing documents: return 'AUDIT'\n"
-                    "- If they are searching for a person/client: return 'SEARCH:[NAME]'\n"
-                    "- Otherwise: return 'CHAT'"
+                    f"Analyze the user's request: '{user_prompt}' and choose the best tool. "
+                    "RULES: "
+                    "1. For questions about a specific case file (e.g., 'who is in charge of X', 'is Y complete'), return 'DETAILS:[CASE_KEY]'. "
+                    "2. For questions about a lawyer's clients (e.g., 'who are elena's clients?'), return 'LAWYER_CLIENTS:[LAWYER_NAME]'. "
+                    "3. For questions about case counts or lawyer workload ('who has most cases'), return 'STATS'. "
+                    "4. For a list of all lawyers ('who are our lawyers'), return 'LAWYERS'. "
+                    "5. For audits or finding missing documents in general, return 'AUDIT'. "
+                    "6. For searching for a client by their own name, return 'SEARCH:[CLIENT_NAME]'. "
+                    "7. If none of the above, return 'CHAT'."
                 )
                 
                 intent_raw = client.models.generate_content(
@@ -70,13 +73,17 @@ class LexEngine:
                 db_data = "No data retrieved."
                 
                 if 'STATS' in intent_raw:
-                    # Calls the new get_lawyer_stats tool
                     result = await session.call_tool("get_lawyer_stats", arguments={})
+                    db_data = result.content
+                
+                elif 'LAWYERS' in intent_raw:
+                    # Calls the new list_all_lawyers tool
+                    result = await session.call_tool("list_all_lawyers", arguments={})
                     db_data = result.content
                     
                 elif 'AUDIT' in intent_raw:
                     result = await session.call_tool("audit_documents", arguments={
-                        "user_id": self.user_id, "role": self.role, "limit": 15
+                        "user_id": self.user_id, "limit": 15
                     })
                     db_data = result.content
                     
@@ -84,7 +91,23 @@ class LexEngine:
                     # Extracts name from 'SEARCH:ELENA'
                     name_query = intent_raw.split(':')[-1]
                     result = await session.call_tool("search_clients", arguments={
-                        "search_term": name_query, "user_id": self.user_id, "role": self.role
+                        "search_term": name_query, "user_id": self.user_id
+                    })
+                    db_data = result.content
+
+                elif 'LAWYER_CLIENTS:' in intent_raw:
+                    # Extracts lawyer name from 'LAWYER_CLIENTS:ELENA'
+                    lawyer_name_query = intent_raw.split(':')[-1]
+                    result = await session.call_tool("get_clients_for_lawyer", arguments={
+                        "lawyer_name": lawyer_name_query
+                    })
+                    db_data = result.content
+
+                elif 'DETAILS:' in intent_raw:
+                    # Extracts case key from 'DETAILS:GARCIA_2026_101'
+                    case_key_query = intent_raw.split(':')[-1]
+                    result = await session.call_tool("get_case_details", arguments={
+                        "case_key": case_key_query
                     })
                     db_data = result.content
                 
@@ -99,7 +122,7 @@ class LexEngine:
 async def main():
     # Simulated Login (Tomorrow we'll make this a real UI login)
     print("--- ⚖️ Lex Immigration Portal: CLI Mode ---")
-    lex = LexEngine(user_id=1, role='Admin')
+    lex = LexEngine(user_id=1)
     
     while True:
         try:
@@ -107,9 +130,9 @@ async def main():
             if user_input.lower() in ['exit', 'quit']: break
             if not user_input: continue
             
-            print("Lex is checking the vault...")
+            print("Lex the Robot is checking the vault...")
             answer = await lex.ask_mcp(user_input)
-            print(f"\nLex: {answer}")
+            print(f"\nLex the Robot: {answer}")
             
         except KeyboardInterrupt:
             break

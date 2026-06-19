@@ -1,18 +1,41 @@
 let currentView = 'cases';
+let caseDataMap = new Map(); // To store full case data by case_key
+let navigationStack = []; // For smart back button
 
 async function renderView(viewType) {
     currentView = viewType;
     const content = document.getElementById('main-content');
-    const sortControls = document.getElementById('sort-controls');
-    
+    const filterControls = document.getElementById('filter-controls');
+
+    // Only reset the navigation stack if we are not in the middle of a "back" operation.
+    if (navigationStack.length <= 1) {
+        navigationStack = [{ render: () => renderView(viewType), title: `Back to ${viewType} list` }];
+    }
+
     // Update UI tabs
     document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
     document.getElementById(`btn-${viewType}`)?.classList.add('active');
 
     // Toggle sort visibility
-    sortControls.style.visibility = viewType === 'cases' ? 'visible' : 'hidden';
+    filterControls.style.display = viewType === 'cases' ? 'flex' : 'none';
+    document.querySelector('.control-bar').style.visibility = 'visible';
 
-    const query = document.getElementById('global-search').value;
+    // --- NEW: Toggle between List and Grid view ---
+    if (viewType === 'cases') {
+        content.className = 'list-view';
+    } else {
+        content.className = ''; // Resets to default grid view
+    }
+
+    // Combine search input with active filter pills
+    const searchInput = document.getElementById('global-search').value;
+    const stateFilter = document.getElementById('state-filter').value;
+    const lawyerFilter = document.getElementById('lawyer-filter').value;
+    const engagementFilter = document.getElementById('engagement-filter').value;
+
+    const activeFilters = [stateFilter, lawyerFilter, engagementFilter].filter(f => f); // Removes empty strings
+    const query = [searchInput, ...activeFilters].join(' ').trim();
+
     const sort = document.getElementById('sort-select').value;
 
     const endpoint = viewType === 'cases' 
@@ -22,54 +45,54 @@ async function renderView(viewType) {
     const response = await fetch(endpoint);
     const data = await response.json();
     
-    // Clear and render the new data
-    content.innerHTML = data.length > 0 
-        ? data.map(item => viewType === 'cases' ? createCaseCard(item) : createLawyerCard(item)).join('')
-        : `<div class="empty-state">No results found in the vault.</div>`;
+    // Store case data for modal access
+    if (viewType === 'cases') data.forEach(c => caseDataMap.set(c.case_key, c));
+
+    if (viewType === 'cases') {
+        const caseListHtml = data.length > 0
+            ? data.map(c => createCaseCard(c)).join('')
+            : '<div class="empty-state">No results found in the vault.</div>';
+        content.innerHTML = `<ol class="case-list-ol">${caseListHtml}</ol>`;
+    } else {
+        content.innerHTML = data.length > 0
+            ? data.map(l => createLawyerCard(l)).join('')
+            : '<div class="empty-state">No results found in the vault.</div>';
+    }
 }
 
 function createCaseCard(c) {
-    const riskClass = c.risk > 50 ? 'high-risk' : (c.completeness === 100 && c.risk < 20 ? 'ready' : '');
-    const riskColor = c.risk > 50 ? 'val-red' : (c.risk < 20 ? 'val-green' : '');
+    const urgencyClass = c.urgency > 50 ? 'high-urgency' : (c.completeness === 100 && c.urgency < 20 ? 'ready' : '');
+    const urgencyColor = c.urgency > 50 ? 'val-red' : (c.urgency < 20 ? 'val-green' : '');
     
+    // The card is now a list item with a horizontal layout
     return `
-        <div class="case-card ${riskClass}">
-            <div class="case-header">
-                <span class="case-key">${c.case_key}</span>
-                <span class="status-badge">${c.status}</span>
+        <li class="case-card ${urgencyClass}" onclick="renderCaseDetailView('${c.case_key}')" style="cursor: pointer;">
+            <div>
+                <strong class="case-key">${c.case_key}</strong>
+                <div style="font-size: 0.9rem; margin: 0;">${c.client_names}</div>
             </div>
-            <span class="client-names">${c.client_names}</span>
             <div class="eng-type">${c.engagement_name}</div>
-            
-            <div class="metrics">
-                <div class="metric-box">
-                    <span class="metric-label">Completeness</span>
-                    <span class="metric-val">${c.completeness}%</span>
+            <div class="lawyer-footer" style="border: none; padding: 0; margin: 0;">
+                👤 <strong>${c.assigned_lawyer}</strong>
+            </div>
+            <div class="metric-box">
+                <span class="metric-label">Urgency</span>
+                <span class="metric-val ${urgencyColor}">${c.urgency}/100</span>
+            </div>
+            <div class="metric-box">
+                <span class="metric-label">Completeness</span>
+                <span class="metric-val">${c.completeness}%</span>
+                <div class="progress-container" style="height: 5px;">
+                    <div class="progress-bar" style="width: ${c.completeness}%"></div>
                 </div>
-                <div class="metric-box">
-                    <span class="metric-label">Risk Level</span>
-                    <span class="metric-val ${riskColor}">${c.risk}/100</span>
-                </div>
             </div>
-
-            <div class="progress-container">
-                <div class="progress-bar" style="width: ${c.completeness}%"></div>
-            </div>
-
-            <div style="margin-top: 15px;">
-                ${c.labels.map(l => `<span class="label-pill ${l}">${l.replace('_', ' ')}</span>`).join('')}
-            </div>
-
-            <div class="lawyer-footer">
-                👤 Assigned: <strong>${c.assigned_lawyer}</strong>
-            </div>
-        </div>
+        </li>
     `;
 }
 
 function createLawyerCard(l) {
     return `
-        <div class="lawyer-card">
+        <div class="lawyer-card" onclick="renderLawyerDetailView(${l.user_id})" style="cursor: pointer;">
             <div class="lawyer-avatar">${l.full_name.charAt(0)}</div>
             <div>
                 <div style="font-weight: bold;">${l.full_name}</div>
@@ -90,4 +113,370 @@ function handleSearch(event) {
 
 function handleSortChange() {
     renderView('cases');
+    }
+
+async function setupFilterDropdowns() {
+    const stateSelect = document.getElementById('state-filter');
+    const lawyerSelect = document.getElementById('lawyer-filter');
+    const engagementSelect = document.getElementById('engagement-filter');
+
+    // 1. Populate State Filter (Static)
+    const states = ['HIGH_URGENCY', 'GATHERING', 'READY_TO_FILE'];
+    stateSelect.innerHTML = '<option value="">All States</option>' + 
+        states.map(s => `<option value="label:${s}">${s.replace('_', ' ')}</option>`).join('');
+
+    // 2. Populate Lawyer Filter (Dynamic)
+    const lawyersRes = await fetch('/api/get_lawyers');
+    const lawyers = await lawyersRes.json();
+    lawyerSelect.innerHTML = '<option value="">All Lawyers</option>' + 
+        lawyers.map(l => `<option value="lawyer:${l.full_name.replace(/ /g, '_')}">${l.full_name}</option>`).join('');
+
+    // 3. Populate Engagement Filter (Dynamic)
+    const engTypesRes = await fetch('/api/get_engagement_types');
+    const engTypes = await engTypesRes.json();
+    engagementSelect.innerHTML = '<option value="">All Engagements</option>' + 
+        engTypes.map(name => `<option value="eng:${name.replace(/ /g, '_')}">${name}</option>`).join('');
+
+    // 4. Add event listeners to trigger re-render on change
+    [stateSelect, lawyerSelect, engagementSelect].forEach(select => {
+        select.addEventListener('change', () => renderView('cases'));
+    });
+}
+
+    // Automatically load the 'cases' view so the dashboard isn't empty on arrival
+    document.addEventListener('DOMContentLoaded', () => {
+        // Initial render to show all cases
+        renderView('cases');
+        // Setup the dropdowns with data from the API
+        setupFilterDropdowns();
+        // Setup the document modal
+        setupDocumentModal();
+        // Setup the chatbot functionality
+        setupChatbot();
+    });
+
+function setupChatbot() {
+    const launcher = document.getElementById('chat-launcher-btn');
+    const closeBtn = document.getElementById('close-chat-btn');
+    const chatWindow = document.getElementById('chat-window');
+    const sendBtn = document.getElementById('send-chat-btn');
+    const chatInput = document.getElementById('chat-input');
+
+    launcher.addEventListener('click', () => {
+        chatWindow.classList.add('open');
+        launcher.style.display = 'none';
+    });
+    closeBtn.addEventListener('click', () => {
+        chatWindow.classList.remove('open');
+        launcher.style.display = 'block';
+    });
+
+    sendBtn.addEventListener('click', sendChatMessage);
+    chatInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            sendChatMessage();
+        }
+    });
+}
+
+async function sendChatMessage() {
+    const chatInput = document.getElementById('chat-input');
+    const chatBody = document.getElementById('chat-body');
+    const prompt = chatInput.value.trim();
+
+    if (!prompt) return;
+
+    // 1. Display user's message
+    addMessageToChat(prompt, 'user');
+    chatInput.value = '';
+
+    // 2. Show thinking indicator
+    const thinkingIndicator = addMessageToChat('Lex the Robot is checking the vault...', 'lex thinking');
+
+    // 3. Call the new API endpoint
+    const response = await fetch('/api/ask_lex', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: prompt })
+    });
+    const data = await response.json();
+
+    // 4. Replace "thinking" with the actual answer
+    thinkingIndicator.textContent = data.answer;
+    thinkingIndicator.classList.remove('thinking');
+}
+
+function addMessageToChat(text, type) {
+    const chatBody = document.getElementById('chat-body');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `chat-message ${type}`;
+    messageDiv.textContent = text;
+    chatBody.appendChild(messageDiv);
+    chatBody.scrollTop = chatBody.scrollHeight; // Auto-scroll to the bottom
+    return messageDiv;
+}
+
+function renderCaseDetailView(caseKey) {
+    const caseData = caseDataMap.get(caseKey);
+    if (!caseData) return;
+
+    // Hide the main controls
+    const backButtonHtml = createBackButton();
+
+    document.getElementById('main-content').className = 'detail-mode';
+    document.querySelector('.control-bar').style.visibility = 'hidden';
+
+    const clientNamesHtml = caseData.client_names.split(', ').map(name => 
+        `<span class="client-name-link" onclick="navigateTo(openClientModal, event, '${name}')">${name}</span>`
+    ).join(', ');
+
+    const lawyerNameHtml = caseData.lawyer_id
+        ? `<span class="client-name-link" onclick="navigateTo(renderLawyerDetailView, ${caseData.lawyer_id})">${caseData.assigned_lawyer}</span>`
+        : caseData.assigned_lawyer;
+
+    const required = caseData.required_docs_list;
+    const present = caseData.present_docs_list;
+    const docListHtml = required.map(docName => {
+        const isPresent = present.includes(docName);
+        const statusClass = isPresent ? 'present' : 'missing';
+        // Find the actual document object to pass its index
+        const docIndex = caseData.documents.findIndex(d => d.doc_type === docName);
+        return `<li class="${statusClass}" onclick="openDocumentModal(event, '${caseData.case_key}', ${docIndex})">${docName.replace(/_/g, ' ')}</li>`;
+    }).join('');
+
+    const detailHtml = `
+        <div class="detail-view-container">
+            <div class="detail-header">
+                <h2>${caseData.case_key}</h2>
+                ${backButtonHtml}
+            </div>
+            <div class="detail-body">
+                <p><strong>Clients:</strong> ${clientNamesHtml}</p>
+                <p><strong>Assigned Lawyer:</strong> ${lawyerNameHtml}</p>
+                <hr>
+                <strong>Documents:</strong>
+                <ul class="doc-list">${docListHtml}</ul>
+            </div>
+        </div>
+    `;
+    document.getElementById('main-content').innerHTML = detailHtml;
+}
+
+async function renderLawyerDetailView(lawyerId) {
+    const response = await fetch(`/api/get_lawyer_details/${lawyerId}`);
+    const data = await response.json();
+
+    if (data.error) {
+        alert(data.error);
+        return;
+    }
+
+    // Hide the main controls
+    const backButtonHtml = createBackButton();
+
+    document.getElementById('main-content').className = 'detail-mode';
+    document.querySelector('.control-bar').style.visibility = 'hidden';
+
+    // Generate the list of cases for this lawyer
+    const caseListHtml = data.cases.length > 0
+        ? data.cases.map(c => createCaseCard(c, true)).join('') // Pass true to indicate it's a sub-list
+        : '<div class="empty-state">No active cases assigned.</div>';
+
+    const detailHtml = `
+        <div class="detail-view-container">
+            <div class="detail-header">
+                <h2>${data.full_name}</h2>
+                ${backButtonHtml}
+            </div>
+            <div class="detail-body">
+                <h3>Metrics</h3>
+                <div class="lawyer-detail-metrics">
+                    <div class="metric-box">
+                        <span class="metric-label">Total Active Cases</span>
+                        <span class="metric-val">${data.total_cases}</span>
+                    </div>
+                    <div class="metric-box">
+                        <span class="metric-label">Average Urgency</span>
+                        <span class="metric-val ${data.avg_urgency > 40 ? 'val-red' : ''}">${data.avg_urgency}/100</span>
+                    </div>
+                    <div class="metric-box">
+                        <span class="metric-label">Average Completeness</span>
+                        <span class="metric-val">${data.avg_completeness}%</span>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="engagement-chart"></canvas>
+                </div>
+                <hr>
+                <h3>Assigned Case Files</h3>
+                <ol class="case-list-ol">${caseListHtml}</ol>
+            </div>
+        </div>
+    `;
+    document.getElementById('main-content').innerHTML = detailHtml;
+
+    // --- Render the Chart ---
+    const ctx = document.getElementById('engagement-chart').getContext('2d');
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: data.engagement_breakdown.labels,
+            datasets: [{
+                label: 'Case Count',
+                data: data.engagement_breakdown.data,
+                backgroundColor: [
+                    '#1a365d', '#3182ce', '#63b3ed', '#90cdf4',
+                    '#2c5282', '#4299e1', '#bee3f8', '#a0aec0'
+                ],
+                hoverOffset: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'top' },
+                title: { display: true, text: 'Caseload by Engagement Type' }
+            }
+        }
+    });
+}
+
+async function openClientModal(event, clientName) {
+    event.stopPropagation(); // Prevent the case modal from opening
+
+    const clientNameForApi = clientName.replace(/ /g, '_');
+    const response = await fetch(`/api/get_client_details/${clientNameForApi}`);
+    const data = await response.json();
+
+    if (data.error) {
+        alert(data.error);
+        return;
+    }
+
+    // Hide the main controls
+    const backButtonHtml = createBackButton();
+
+    document.getElementById('main-content').className = 'detail-mode';
+    document.querySelector('.control-bar').style.visibility = 'hidden';
+
+    const address = `${data.street_address}, ${data.city}, ${data.postal_code}, ${data.country}`;
+    const spouseInfo = data.spouse_name ? `${data.spouse_name} (Married on: ${data.metadata.date_of_marriage})` : 'Not applicable';
+
+    const detailHtml = `
+        <div class="detail-view-container">
+            <div class="detail-header">
+                <h2>${data.full_name}</h2>
+                ${backButtonHtml}
+            </div>
+            <div class="detail-body">
+                <p><strong>Date of Birth:</strong> ${data.dob}</p>
+                <p><strong>Nationality:</strong> ${data.nationality}</p>
+                <p><strong>Email:</strong> ${data.email}</p>
+                <hr>
+                <p><strong>Address:</strong> ${address}</p>
+                <hr>
+                <p><strong>Spouse:</strong> ${spouseInfo}</p>
+            </div>
+        </div>
+    `;
+    document.getElementById('main-content').innerHTML = detailHtml;
+}
+
+function navigateTo(viewFunction, ...args) {
+    // This is the new central point for forward navigation.
+    // It pushes the new view's render function onto the stack BEFORE executing it.
+    navigationStack.push({ render: () => viewFunction(...args) });
+    viewFunction(...args);
+}
+
+// We need to update the onclick handlers to use the new navigation function
+function createCaseCard(c, isSubView = false) {
+    const urgencyClass = c.urgency > 50 ? 'high-urgency' : (c.completeness === 100 && c.urgency < 20 ? 'ready' : '');
+    const urgencyColor = c.urgency > 50 ? 'val-red' : (c.urgency < 20 ? 'val-green' : '');
+    
+    // The card is now a list item with a horizontal layout
+    return `
+        <li class="case-card ${urgencyClass}" onclick="navigateTo(renderCaseDetailView, '${c.case_key}', ${isSubView})" style="cursor: pointer;">
+            <div>
+                <strong class="case-key">${c.case_key}</strong>
+                <div style="font-size: 0.9rem; margin: 0;">${c.client_names}</div>
+            </div>
+            <div class="eng-type">${c.engagement_name}</div>
+            <div class="lawyer-footer" style="border: none; padding: 0; margin: 0;">
+                👤 <strong>${c.assigned_lawyer}</strong>
+            </div>
+            <div class="metric-box">
+                <span class="metric-label">Urgency</span>
+                <span class="metric-val ${urgencyColor}">${c.urgency}/100</span>
+            </div>
+            <div class="metric-box">
+                <span class="metric-label">Completeness</span>
+                <span class="metric-val">${c.completeness}%</span>
+                <div class="progress-container" style="height: 5px;">
+                    <div class="progress-bar" style="width: ${c.completeness}%"></div>
+                </div>
+            </div>
+        </li>
+    `;
+}
+
+function createLawyerCard(l) {
+    return `
+        <div class="lawyer-card" onclick="navigateTo(renderLawyerDetailView, ${l.user_id})" style="cursor: pointer;">
+            <div class="lawyer-avatar">${l.full_name.charAt(0)}</div>
+            <div>
+                <div style="font-weight: bold;">${l.full_name}</div>
+                <div style="font-size: 0.8rem; color: #718096;">Lawyer ID: #${l.user_id}</div>
+            </div>
+        </div>
+    `;
+}
+
+function goBack() {
+    // Pop the current view
+    if (navigationStack.length > 1) {
+        navigationStack.pop();
+    }
+    // Render the view now at the top of the stack
+    const previousView = navigationStack[navigationStack.length - 1];
+    if (previousView && typeof previousView.render === 'function') {
+        previousView.render();
+    }
+}
+
+function createBackButton() {
+    return `<button class="back-button" onclick="goBack()">← Back</button>`;
+}
+
+function setupDocumentModal() {
+    const modal = document.getElementById('document-modal');
+    const closeBtn = document.getElementById('document-modal-close-btn');
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.style.display = 'none';
+    });
+    closeBtn.addEventListener('click', () => modal.style.display = 'none');
+}
+
+function openDocumentModal(event, caseKey, docIndex) {
+    event.stopPropagation(); // Prevent the case detail view from re-rendering
+
+    const caseData = caseDataMap.get(caseKey);
+    if (!caseData || docIndex === -1) return;
+
+    const doc = caseData.documents[docIndex];
+    if (!doc) return;
+
+    document.getElementById('modal-doc-name').textContent = doc.doc_type.replace(/_/g, ' ');
+    const modalBody = document.getElementById('document-modal-body');
+
+    let metadataHtml = '<div class="metadata-grid">';
+    for (const [key, value] of Object.entries(doc.metadata)) {
+        const displayKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        const displayValue = value === true ? 'Yes' : (value === false ? 'No' : (value || 'N/A'));
+        metadataHtml += `<strong>${displayKey}:</strong> <span>${displayValue}</span>`;
+    }
+    metadataHtml += '</div>';
+
+    modalBody.innerHTML = metadataHtml;
+    document.getElementById('document-modal').style.display = 'flex';
 }

@@ -3,6 +3,7 @@ from faker import Faker
 from datetime import datetime, timedelta
 
 fake = Faker('es_ES')
+fake_international = Faker() # For non-Spanish addresses
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.abspath(os.path.join(BASE_DIR, '..', 'data', 'portal.db'))
 
@@ -21,7 +22,7 @@ def _generate_realistic_value(key, fake_instance):
             return fake_instance.date_between(start_date='today', end_date='+1y').strftime("%Y-%m-%d")
     
     # 2. BOOLEANS (Legal validations)
-    elif key.startswith("is_") or key.startswith("has_") or key in ["all_pages_scanned", "stamped_by_bank", "no_copay", "repatriation", "signed_by_company", "viable_by_upt", "homologated"]:
+    elif key.startswith("is_") or key.startswith("has_") or key in ["all_pages_scanned", "stamped_by_bank", "no_copay", "repatriation", "signed_by_company", "viable_by_upt", "homologated", "active_status"]:
         # 80% chance of being True to simulate mostly valid docs, with some risky ones
         return random.random() < 0.80
     
@@ -48,8 +49,6 @@ def _generate_realistic_value(key, fake_instance):
         return random.choice(["Paid", "Unpaid"])
     elif key == "cif_number":
         return fake_instance.bothify(text='B########')
-    elif key == "active_status":
-        return random.choice(["Active", "Inactive"])
     elif key == "years_exp":
         return random.randint(1, 15)
     elif key == "relevant_sector":
@@ -87,7 +86,7 @@ def setup_final_comprehensive_db():
         ("Marriage/Partner Certificate", json.dumps(["issue_date", "has_apostille"])),
         ("Empadronamiento", json.dumps(["issue_date", "members_listed"])),
         ("Form 790-052", json.dumps(["issue_date", "paid_status"])),
-        ("Company CIF", json.dumps(["cif_number", "is_active"])),
+        ("Company CIF", json.dumps(["cif_number", "active_status"])),
         ("Letter of Acceptance", json.dumps(["school_name", "start_date"])),
         ("Social Security Cert", json.dumps(["issue_date", "active_status"])),
         ("Work Experience Proof", json.dumps(["years_exp", "relevant_sector"])),
@@ -111,11 +110,16 @@ def setup_final_comprehensive_db():
     cursor.executemany("INSERT INTO Engagement_Types VALUES (?,?,?,?)", eng_data)
 
     # 3. CORE TABLES
-    cursor.execute("CREATE TABLE Users (user_id INTEGER PRIMARY KEY, full_name TEXT, role TEXT)")
+    cursor.execute("CREATE TABLE Users (user_id INTEGER PRIMARY KEY, full_name TEXT)")
     cursor.execute("""CREATE TABLE Clients (
         client_id INTEGER PRIMARY KEY, 
         full_name TEXT, 
-        nationality TEXT, 
+        nationality TEXT,
+        dob TEXT,
+        street_address TEXT,
+        city TEXT,
+        postal_code TEXT,
+        country TEXT,
         email TEXT,
         metadata TEXT 
     )""")
@@ -124,41 +128,71 @@ def setup_final_comprehensive_db():
     cursor.execute("CREATE TABLE Document_Vault (doc_id INTEGER PRIMARY KEY, case_key TEXT, client_id INTEGER, doc_type TEXT, is_present BOOLEAN, metadata TEXT, updated_at DATE)")
 
     # 4. TEAM: 5 LAWYERS + 1 ADMIN
-    users = [(1, "Elena Ruiz", "Lawyer"), (2, "Iñigo Larrea", "Lawyer"), (3, "Javi Montoya", "Lawyer"), 
-             (4, "Bea Iglesia", "Lawyer"), (5, "Mateo Vizcaíno", "Lawyer"), (6, "Lucía Méndez", "Admin")]
-    cursor.executemany("INSERT INTO Users VALUES (?,?,?)", users)
+    users = [(1, "Elena Ruiz"), (2, "Iñigo Larrea"), (3, "Javi Montoya"), 
+             (4, "Bea Iglesia"), (5, "Mateo Vizcaíno"), (6, "Lucía Méndez")]
+    cursor.executemany("INSERT INTO Users VALUES (?,?)", users)
 
     # 5. SEED 50 CASES
     nats = ["USA", "UK", "Canada", "Philippines", "Mexico", "Brazil", "Argentina", "Venezuela", "Colombia", "Peru", "Chile", "Ecuador", "Bolivia"]
-    for i in range(1, 51):
+    for i in range(1, 201):
         eng = random.choice(eng_data)
         adj_rate = round(random.uniform(0.9, 1.4), 2)
-        last_name = fake.last_name().upper().replace(" ", "_")
-        case_key = f"{last_name}_2026_{100+i}"
         
+        # Generate primary client details first to ensure names match the case key
+        p_first = fake.first_name()
+        p_last = fake.last_name()
+        case_key = f"{p_last.upper().replace(' ', '_')}_2026_{100+i}"
+
         cursor.execute("INSERT INTO Case_Files VALUES (?,?,?,?,?,?)", 
-                       (case_key, random.randint(1, 5), eng[0], "In Progress", adj_rate, round(eng[3] * adj_rate, 2)))
+                       (case_key, random.randint(1, 6), eng[0], "In Progress", adj_rate, round(eng[3] * adj_rate, 2)))
 
         # Handle Marriage/Multi-Client logic
         is_married = random.random() < 0.20
         case_participants = []
         
+        # Base client data - create international addresses for the first 43 clients
+        if i <= 43:
+            address_country = fake_international.country()
+            # Ensure the generated country is not Spain for this cohort
+            while address_country == "Spain":
+                address_country = fake_international.country()
+            
+            street = fake_international.street_address()
+            city = fake_international.city()
+            postal_code = fake_international.postcode()
+        else:
+            address_country, street, city, postal_code = "Spain", fake.street_address(), fake.city(), fake.postcode()
+
+        client_base_data = (
+            random.choice(nats),
+            fake.date_of_birth(minimum_age=20, maximum_age=65).strftime("%Y-%m-%d"),
+            street, city, postal_code, address_country,
+            fake.email()
+        )
+
         if is_married:
-            p_id = cursor.execute("INSERT INTO Clients (full_name, nationality, email, metadata) VALUES (?,?,?,?)",
-                                 (f"{fake.first_name()} {fake.last_name()}", random.choice(nats), fake.email(), json.dumps({"is_married": True}))).lastrowid
-            s_id = cursor.execute("INSERT INTO Clients (full_name, nationality, email, metadata) VALUES (?,?,?,?)",
-                                 (f"{fake.first_name()} {fake.last_name()}", random.choice(nats), fake.email(), json.dumps({"is_married": True, "spouse_id": p_id}))).lastrowid
-            cursor.execute("UPDATE Clients SET metadata = ? WHERE client_id = ?", (json.dumps({"is_married": True, "spouse_id": s_id}), p_id))
+            dom = fake.date_between(start_date='-10y', end_date='today').strftime("%Y-%m-%d")
+            p_meta = {"is_married": True, "date_of_marriage": dom}
+            s_meta = {"is_married": True, "date_of_marriage": dom}
+            p_id = cursor.execute("INSERT INTO Clients (full_name, nationality, dob, street_address, city, postal_code, country, email, metadata) VALUES (?,?,?,?,?,?,?,?,?)", (f"{p_first} {p_last}", *client_base_data, json.dumps(p_meta))).lastrowid
+            s_id = cursor.execute("INSERT INTO Clients (full_name, nationality, dob, street_address, city, postal_code, country, email, metadata) VALUES (?,?,?,?,?,?,?,?,?)", (f"{fake.first_name()} {p_last}", *client_base_data, json.dumps(s_meta))).lastrowid
+            # Update each other's metadata with spouse_id
+            cursor.execute("UPDATE Clients SET metadata = json_set(metadata, '$.spouse_id', ?) WHERE client_id = ?", (s_id, p_id))
+            cursor.execute("UPDATE Clients SET metadata = json_set(metadata, '$.spouse_id', ?) WHERE client_id = ?", (p_id, s_id))
             case_participants = [p_id, s_id]
         else:
-            p_id = cursor.execute("INSERT INTO Clients (full_name, nationality, email, metadata) VALUES (?,?,?,?)",
-                                 (f"{fake.first_name()} {fake.last_name()}", random.choice(nats), fake.email(), json.dumps({"is_married": False}))).lastrowid
+            p_id = cursor.execute("INSERT INTO Clients (full_name, nationality, dob, street_address, city, postal_code, country, email, metadata) VALUES (?,?,?,?,?,?,?,?,?)", (f"{p_first} {p_last}", *client_base_data, json.dumps({"is_married": False}))).lastrowid
             case_participants = [p_id]
 
         for c_id in case_participants:
             cursor.execute("INSERT INTO Case_Clients (case_key, client_id) VALUES (?,?)", (case_key, c_id))
             for doc_name in json.loads(eng[2]):
-                is_present = random.choice([0, 1])
+                # --- Logic to create high-urgency cases ---
+                # For the first 15 cases, ensure at least one doc is missing
+                if i <= 15 and "Bank Statements" in doc_name:
+                    is_present = 0
+                else:
+                    is_present = random.choice([0, 1])
                 
                 # Fetch exact required keys for this specific doc_type
                 cursor.execute("SELECT required_keys FROM Document_Types WHERE name = ?", (doc_name,))
@@ -166,10 +200,18 @@ def setup_final_comprehensive_db():
                 
                 # Generate realistic metadata using the helper function
                 meta = {}
-                if is_present:
+                if i <= 15 and "Police Certificate" in doc_name:
+                    meta = {"issue_date": fake.date_between(start_date='-2y', end_date='-1y').strftime("%Y-%m-%d"), "has_apostille": False, "is_translated": False}
+                    is_present = 1 # Make sure the bad doc is present
+                elif i <= 15 and "Passport" in doc_name:
+                    meta = {"expiry_date": fake.date_between(start_date='-1y', end_date='-1d').strftime("%Y-%m-%d"), "passport_number": fake.bothify(text='??#######'), "all_pages_scanned": True}
+                    is_present = 1 # Make sure the expired doc is present
+                elif is_present:
                     for key in req_keys:
                         meta[key] = _generate_realistic_value(key, fake)
-                else:
+                
+                # If doc is not present, metadata should be empty
+                if not is_present:
                     meta = {key: None for key in req_keys}
                 
                 # Insert with Date only (no time)

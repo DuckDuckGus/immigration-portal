@@ -20,20 +20,66 @@ nav { background: var(--primary); color: white; padding: 1rem 2rem; box-shadow: 
 .tabs button { background: none; border: none; font-size: 1rem; margin-right: 1.5rem; cursor: pointer; padding-bottom: 5px; color: #718096; }
 .tabs button.active { border-bottom: 3px solid var(--accent); color: var(--primary); font-weight: bold; }
 
+.filter-controls { display: flex; align-items: center; gap: 1.5rem; }
+.filter-group { display: flex; gap: 0.75rem; }
+.filter-controls select {
+    padding: 0.5rem;
+    border: 1px solid #cbd5e0;
+    border-radius: 6px;
+    background-color: white;
+}
+
+/* Default Grid Layout (for Lawyers) */
 #main-content { max-width: 1200px; margin: 0 auto; padding: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 1.5rem; }
+
+/* List View Layout (for Cases) - Higher specificity to override the grid */
+#main-content.list-view { display: block; }
 
 .case-card { background: white; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: transform 0.2s; border-left: 6px solid #cbd5e0; }
 .case-card:hover { transform: translateY(-3px); box-shadow: 0 10px 15px rgba(0,0,0,0.1); }
-.case-card.high-risk { border-left-color: var(--danger); }
+.case-card.high-urgency { border-left-color: var(--danger); }
 .case-card.ready { border-left-color: var(--success); }
 
 .case-header { display: flex; justify-content: space-between; margin-bottom: 1rem; }
 .case-key { font-weight: bold; color: var(--primary); }
 .status-badge { font-size: 0.75rem; background: #edf2f7; padding: 2px 8px; border-radius: 10px; }
 
-.client-names { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; display: block; }
-.eng-type { color: #718096; font-size: 0.85rem; margin-bottom: 1rem; }
+.client-name-link {
+    cursor: pointer; text-decoration: underline; color: var(--accent);
+}
 
+/* Ordered List Styling */
+.case-list-ol {
+    list-style: none; /* Remove default bullet points */
+    padding-left: 0;
+    counter-reset: case-counter; /* Initialize our custom counter */
+}
+
+/* List View Specific Styles for Case Card */
+.case-list-ol .case-card {
+    display: grid;
+    grid-template-columns: 2fr 1.5fr 1fr 1fr 1fr;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    gap: 1rem;
+    transition: none; /* Disable hover effects for list items */
+    position: relative;
+    padding-left: 3.5rem; /* Make space for the number */
+}
+
+/* Style the generated index number */
+.case-list-ol .case-card::before {
+    counter-increment: case-counter;
+    content: counter(case-counter);
+    position: absolute;
+    left: 1.5rem;
+    font-size: 1rem;
+    font-weight: bold;
+    color: #a0aec0;
+}
+
+.eng-type { color: #718096; font-size: 0.85rem; margin-bottom: 1rem; }
+.client-names { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; display: block; }
 .metrics { display: flex; gap: 2rem; margin: 1rem 0; }
 .metric-box { flex: 1; }
 .metric-label { font-size: 0.7rem; color: #a0aec0; text-transform: uppercase; display: block; margin-bottom: 4px; }
@@ -45,7 +91,7 @@ nav { background: var(--primary); color: white; padding: 1rem 2rem; box-shadow: 
 .progress-bar { height: 100%; background: var(--accent); transition: width 0.5s ease; }
 
 .label-pill { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.7rem; margin-right: 5px; font-weight: bold; }
-.label-pill.HIGH_RISK { background: #fff5f5; color: #c53030; }
+.label-pill.HIGH_URGENCY { background: #fff5f5; color: #c53030; }
 .label-pill.GATHERING { background: #fffaf0; color: #9c4221; }
 .label-pill.READY_TO_FILE { background: #f0fff4; color: #276749; }
 
@@ -54,3 +100,115 @@ nav { background: var(--primary); color: white; padding: 1rem 2rem; box-shadow: 
 /* Lawyer View Styles */
 .lawyer-card { background: white; padding: 1.5rem; border-radius: 12px; display: flex; align-items: center; gap: 1rem; }
 .lawyer-avatar { background: var(--accent); color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+
+.lawyer-detail-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2rem;
+}
+.chart-container {
+    max-width: 450px;
+    margin: 2rem auto;
+}
+
+/* --- Detail View Styles --- */
+#main-content.detail-mode {
+    display: block; /* Override grid layout for detail views */
+}
+.detail-view-container { background: white; padding: 2rem 3rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+.detail-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 1rem; margin-bottom: 1rem; }
+.detail-header h2 { margin: 0; color: var(--primary); }
+.back-button { background: #edf2f7; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; cursor: pointer; font-weight: bold; }
+.back-button:hover { background: #e2e8f0; }
+.detail-body hr { border: none; border-top: 1px solid #e2e8f0; margin: 1rem 0; }
+.detail-body .doc-list { list-style: none; padding-left: 0; }
+.detail-body .doc-list li { padding: 0.5rem 0; border-bottom: 1px solid #f7fafc; }
+.detail-body .doc-list li.present::before {
+    content: '✓'; color: var(--success); font-weight: bold; margin-right: 10px;
+}
+.detail-body .doc-list li.missing::before {
+    content: '✗'; color: var(--danger); font-weight: bold; margin-right: 10px;
+}
+.detail-body .doc-list li:hover { background-color: #f7fafc; cursor: pointer; }
+
+.metadata-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; }
+.metadata-grid strong { color: #718096; }
+
+
+/* --- Modal Styles --- */
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+.modal-content { background: white; padding: 2rem; border-radius: 12px; width: 90%; max-width: 600px; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 1rem; margin-bottom: 1rem; }
+.modal-header h2 { margin: 0; color: var(--primary); }
+.modal-header .close-chat { color: var(--text); } /* Reuse chatbot close button style */
+.modal-body hr { border: none; border-top: 1px solid #e2e8f0; margin: 1rem 0; }
+.modal-body #modal-doc-list { list-style: none; padding-left: 0; }
+.modal-body #modal-doc-list li { padding: 0.5rem 0; border-bottom: 1px solid #f7fafc; }
+.modal-body #modal-doc-list li.present::before {
+    content: '✓'; color: var(--success); font-weight: bold; margin-right: 10px;
+}
+
+/* --- Chatbot Styles --- */
+.chatbot-container { position: fixed; bottom: 20px; right: 20px; z-index: 1000; width: 370px; height: 500px; }
+.chat-launcher {
+    background: var(--primary);
+    color: white;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    transition: transform 0.2s;
+    position: absolute;
+    bottom: 0;
+    right: 0;
+}
+.chat-launcher:hover { transform: scale(1.1); }
+
+.chat-window {
+    position: absolute;
+    width: 370px;
+    height: 500px;
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transform: scale(0);
+    transform-origin: bottom right;
+    transition: transform 0.3s ease-in-out;
+}
+.chat-window.open { transform: scale(1); }
+
+.chat-header { background: var(--primary); color: white; padding: 1rem; display: flex; justify-content: space-between; align-items: center; }
+.close-chat { background: none; border: none; color: white; font-size: 24px; cursor: pointer; }
+
+.chat-body { flex-grow: 1; padding: 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem; }
+.chat-message { max-width: 80%; padding: 0.6rem 1rem; border-radius: 18px; line-height: 1.4; }
+.chat-message.user { background: var(--accent); color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+.chat-message.lex { background: #edf2f7; color: var(--text); align-self: flex-start; border-bottom-left-radius: 4px; }
+.chat-message.lex.thinking { font-style: italic; color: #718096; }
+
+.chat-input-area { display: flex; border-top: 1px solid #e2e8f0; padding: 0.5rem; }
+.chat-input-area input { flex-grow: 1; border: none; padding: 0.75rem; outline: none; }
+.chat-input-area button {
+    background: var(--accent);
+    border: none;
+    color: white;
+    font-size: 1.2rem;
+    padding: 0 1rem;
+    border-radius: 6px;
+    cursor: pointer;
+}
