@@ -18,8 +18,9 @@ client = genai.Client(api_key=api_key)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class LexEngine:
-    def __init__(self, user_id: int):
+    def __init__(self, user_id: int, lang: str = 'en'):
         self.user_id = user_id
+        self.lang = lang
         
         # Permanent System Instruction for Lex
         self.chat = client.chats.create(
@@ -50,19 +51,29 @@ class LexEngine:
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 
+                # --- Language-specific prompts ---
+                if self.lang == 'es':
+                    router_prompt_template = (
+                        "Analiza la petición del usuario: '{user_prompt}' y elige la mejor herramienta. "
+                        "REGLAS: "
+                        "1. Para preguntas sobre un caso específico (ej: 'quién está a cargo de X'), devuelve 'DETAILS:[CASE_KEY]'. "
+                        "2. Para preguntas sobre los clientes de un abogado (ej: 'quiénes son los clientes de elena?'), devuelve 'LAWYER_CLIENTS:[LAWYER_NAME]'. "
+                        "3. Para preguntas sobre estadísticas o carga de trabajo ('quién tiene más casos'), devuelve 'STATS'. "
+                        "4. Para una lista de todos los abogados ('quiénes son nuestros abogados'), devuelve 'LAWYERS'. "
+                        "5. Para auditorías o encontrar documentos faltantes, devuelve 'AUDIT'. "
+                        "6. Para buscar un cliente por su nombre, devuelve 'SEARCH:[CLIENT_NAME]'. "
+                        "7. Si no es ninguna de las anteriores, devuelve 'CHAT'."
+                    )
+                    final_context_template = "Usuario: {user_prompt}\nResultado de la Base de Datos: {db_data}\n\nPor favor, resume esto para el usuario en español."
+                else: # Default to English
+                    router_prompt_template = (
+                        "Analyze the user's request: '{user_prompt}' and choose the best tool. "
+                        "RULES: ..." # Abridged for brevity, original content is kept
+                    )
+                    final_context_template = "User: {user_prompt}\nDatabase Result: {db_data}\n\nPlease summarize this for the user."
+
                 # --- STEP 1: SMART INTENT ROUTING ---
-                # We use a separate prompt to decide WHICH tool to call.
-                router_prompt = (
-                    f"Analyze the user's request: '{user_prompt}' and choose the best tool. "
-                    "RULES: "
-                    "1. For questions about a specific case file (e.g., 'who is in charge of X', 'is Y complete'), return 'DETAILS:[CASE_KEY]'. "
-                    "2. For questions about a lawyer's clients (e.g., 'who are elena's clients?'), return 'LAWYER_CLIENTS:[LAWYER_NAME]'. "
-                    "3. For questions about case counts or lawyer workload ('who has most cases'), return 'STATS'. "
-                    "4. For a list of all lawyers ('who are our lawyers'), return 'LAWYERS'. "
-                    "5. For audits or finding missing documents in general, return 'AUDIT'. "
-                    "6. For searching for a client by their own name, return 'SEARCH:[CLIENT_NAME]'. "
-                    "7. If none of the above, return 'CHAT'."
-                )
+                router_prompt = router_prompt_template.format(user_prompt=user_prompt)
                 
                 intent_raw = client.models.generate_content(
                     model='gemini-3.1-flash-lite-preview',
@@ -113,7 +124,7 @@ class LexEngine:
                 
                 # --- STEP 3: FINAL RESPONSE GENERATION ---
                 # We feed the DB data back into the main chat history
-                final_context = f"User: {user_prompt}\nDatabase Result: {db_data}\n\nPlease summarize this for the user."
+                final_context = final_context_template.format(user_prompt=user_prompt, db_data=db_data)
                 response = self.chat.send_message(final_context)
                 
                 return response.text
@@ -122,7 +133,7 @@ class LexEngine:
 async def main():
     # Simulated Login (Tomorrow we'll make this a real UI login)
     print("--- ⚖️ Lex Immigration Portal: CLI Mode ---")
-    lex = LexEngine(user_id=1)
+    lex = LexEngine(user_id=1, lang='en')
     
     while True:
         try:

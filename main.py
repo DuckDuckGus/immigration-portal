@@ -47,12 +47,13 @@ def get_lawyer_details(lawyer_id: int):
 
 class LexQuery(BaseModel):
     prompt: str
+    lang: str = 'en'
     user_id: int = 1 # Defaulting to user 1 for now
 
 @app.post("/api/ask_lex")
 async def ask_lex(query: LexQuery):
     # This instantiates the engine for each request.
     # For a production app, you might manage this differently (e.g., singleton).
-    lex = LexEngine(user_id=query.user_id)
+    lex = LexEngine(user_id=query.user_id, lang=query.lang)
     answer = await lex.ask_mcp(query.prompt)
     return {"answer": answer}

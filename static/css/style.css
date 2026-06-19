@@ -12,9 +12,15 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 
 nav { background: var(--primary); color: white; padding: 1rem 2rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 .nav-container { display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto; }
-.logo { font-size: 1.5rem; font-weight: bold; }
+.nav-controls { display: flex; align-items: center; gap: 1.5rem; }
+.logo { font-size: 1.5rem; font-weight: bold; cursor: pointer; }
 .sub-logo { font-weight: 300; opacity: 0.8; font-size: 0.9rem; }
-.search-box input { padding: 0.6rem 1rem; border-radius: 20px; border: none; width: 300px; outline: none; }
+
+.lang-switch { background: rgba(255,255,255,0.2); border-radius: 15px; padding: 3px; }
+.lang-switch button { background: none; border: none; color: white; padding: 5px 10px; border-radius: 12px; cursor: pointer; font-size: 1.2rem; line-height: 1; }
+.lang-switch button.active { background: white; color: var(--primary); font-weight: bold; }
+
+#global-search { padding: 0.6rem 1rem; border-radius: 20px; border: none; width: 300px; outline: none; }
 
 .control-bar { max-width: 1200px; margin: 1.5rem auto; display: flex; justify-content: space-between; align-items: center; padding: 0 1rem; }
 .tabs button { background: none; border: none; font-size: 1rem; margin-right: 1.5rem; cursor: pointer; padding-bottom: 5px; color: #718096; }
@@ -122,13 +128,9 @@ nav { background: var(--primary); color: white; padding: 1rem 2rem; box-shadow: 
 .back-button:hover { background: #e2e8f0; }
 .detail-body hr { border: none; border-top: 1px solid #e2e8f0; margin: 1rem 0; }
 .detail-body .doc-list { list-style: none; padding-left: 0; }
-.detail-body .doc-list li { padding: 0.5rem 0; border-bottom: 1px solid #f7fafc; }
-.detail-body .doc-list li.present::before {
-    content: '✓'; color: var(--success); font-weight: bold; margin-right: 10px;
-}
-.detail-body .doc-list li.missing::before {
-    content: '✗'; color: var(--danger); font-weight: bold; margin-right: 10px;
-}
+.detail-body .doc-list li { padding: 0.5rem 0; border-bottom: 1px solid #f7fafc; font-weight: 500; }
+.detail-body .doc-list li.present { color: var(--success); }
+.detail-body .doc-list li.missing { color: var(--danger); }
 .detail-body .doc-list li:hover { background-color: #f7fafc; cursor: pointer; }
 
 .metadata-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; }
@@ -211,4 +213,14 @@ nav { background: var(--primary); color: white; padding: 1rem 2rem; box-shadow: 
     padding: 0 1rem;
     border-radius: 6px;
     cursor: pointer;
+}
+
+/* --- Pagination Styles --- */
+.pagination-controls { display: flex; justify-content: center; gap: 0.5rem; margin-top: 2rem; }
+.page-btn { background: white; border: 1px solid #cbd5e0; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; }
+.page-btn:hover { background: #f7fafc; }
+.page-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
 }

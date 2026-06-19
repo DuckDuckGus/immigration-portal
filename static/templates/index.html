@@ -7,8 +7,12 @@
 <body>
     <nav>
         <div class="nav-container">
-            <div class="logo">⚖️ Client Management <span class="sub-logo">Portal</span></div>
-            <div class="search-box">
+            <div class="logo" onclick="renderView('cases')">⚖️ Case Management <span class="sub-logo">Portal</span></div>
+            <div class="nav-controls">
+                <div class="lang-switch">
+                    <button id="lang-en" class="active">🇺🇸</button>
+                    <button id="lang-es">🇪🇸</button>
+                </div>
                 <input type="text" id="global-search" placeholder="Search by case ID..." onkeyup="handleSearch(event)">
             </div>
         </div>
@@ -16,8 +20,8 @@
 
     <div class="control-bar">
         <div class="tabs">
-            <button id="btn-cases" class="active" onclick="renderView('cases')">All Cases</button>
-            <button id="btn-lawyers" onclick="renderView('lawyers')">Team</button>
+            <button id="btn-cases" class="active" onclick="renderView('cases')" data-translate-key="all_cases">All Cases</button>
+            <button id="btn-lawyers" onclick="renderView('lawyers')" data-translate-key="team">Team</button>
         </div>
         <div class="filter-controls" id="filter-controls">
             <div class="filter-group">
@@ -25,7 +29,7 @@
                 <select id="lawyer-filter"></select>
                 <select id="engagement-filter"></select>
             </div>
-            <label>Sort By:</label>
+            <label data-translate-key="sort_by">Sort By:</label>
             <select id="sort-select" onchange="handleSortChange()">
                 <option value="priority">High Urgency First</option>
                 <option value="completeness">Least Complete First</option>
